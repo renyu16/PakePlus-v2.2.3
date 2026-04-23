@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>音乐播放器</title>
+    <link href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://lib.baomitu.com/font-awesome/4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        html, body { margin: 0; padding: 0; height: 100%; }
+        body { 
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); 
+            color: #fff; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        /* 搜索区域 */
+        .search-box {
+            position: sticky; top: 0; z-index: 100;
+            background: rgba(22, 33, 62, 0.95);
+            padding: 12px;
+            backdrop-filter: blur(10px);
+        }
+        .search-input {
+            background: rgba(255,255,255,0.1);
+            border: none; border-radius: 25px;
+            padding: 12px 20px; color: #fff;
+            font-size: 16px;
+        }
+        .search-input::placeholder { color: rgba(255,255,255,0.5); }
+        .search-btn {
+            position: absolute; right: 20px; top: 50%;
+            transform: translateY(-50%);
+            background: #e94560; border: none;
+            border-radius: 50%; width: 40px; height: 40px;
+            color: #fff;
+        }
+
+        /* 列表样式 */
+        .song-list {
+            max-height: calc(100vh - 280px);
+            overflow-y: auto;
+            padding-bottom: 140px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .song-item {
+            display: flex; align-items: center;
+            padding: 15px 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            transition: background 0.2s;
+        }
+        .song-item:active { background: rgba(255,255,255,0.1); }
+        .song-item.playing {
+            background: linear-gradient(90deg, rgba(233,69,96,0.3), transparent);
+            border-left: 3px solid #e94560;
+        }
+        .song-info { flex: 1; min-width: 0; }
+        .song-title {
+            font-size: 16px; font-weight: 500;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .song-artist {
+            font-size: 13px; color: rgba(255,255,255,0.6);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .song-actions {
+            display: flex; gap: 15px;
+            padding-left: 10px;
+        }
+        .song-actions i {
+            font-size: 20px; color: #e94560;
+            padding: 5px;
+        }
+
+        /* 底部播放栏 */
+        .player-bar {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: rgba(22, 33, 62, 0.98);
+            padding: 15px 20px 25px;
+            backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        .progress-bar {
+            height: 4px; background: rgba(255,255,255,0.2);
+            border-radius: 2px; margin-bottom: 12px;
+            cursor: pointer; position: relative; overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%; width: 0%; background: #e94560;
+            border-radius: 2px; transition: width 0.1s linear;
+        }
+        .player-main {
+            display: flex; align-items: center;
+        }
+        .player-info {
+            flex: 1; min-width: 0;
+            padding-right: 15px;
+        }
+        .player-info .song-title {
+            font-size: 15px; margin-bottom: 2px;
+        }
+        .player-controls {
+            display: flex; align-items: center; gap: 20px;
+        }
+        .player-controls i {
+            font-size: 28px; color: #fff;
+            transition: transform 0.2s, color 0.2s;
+        }
+        .player-controls i:active { transform: scale(0.9); }
+        .player-controls .play-btn {
+            width: 50px; height: 50px;
+            background: #e94560; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px !important;
+        }
+
+        /* 标签切换 */
+        .tab-bar {
+            display: flex; background: rgba(0,0,0,0.3);
+            position: sticky; top: 70px; z-index: 99;
+        }
+        .tab-item {
+            flex: 1; text-align: center; padding: 12px;
+            color: rgba(255,255,255,0.6);
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab-item.active {
+            color: #e94560; border-color: #e94560;
+        }
+
+        /* 空状态 */
+        .empty-state {
+            text-align: center; padding: 50px 20px;
+            color: rgba(255,255,255,0.4);
+        }
+
+        @media (min-width: 768px) {
+            .container { max-width: 600px; margin: 0 auto; }
+            .song-list { max-height: calc(100vh - 200px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 搜索 -->
+        <div class="search-box">
+            <div class="input-group">
+                <input type="text" id="searchInput" class="search-input" placeholder="搜索歌曲/歌手..." onclick="switchTab('search')">
+                <button class="search-btn" onclick="searchSongs()">
+                    <i class="fa fa-search"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- 标签 -->
+        <div class="tab-bar">
+            <div class="tab-item active" data-target="search" onclick="switchTab('search')">
+                <i class="fa fa-search"></i> 搜索
+            </div>
+            <div class="tab-item" data-target="playlist" onclick="switchTab('playlist')">
+                <i class="fa fa-list"></i> 播放(<span id="plistCount">0</span>)
+            </div>
+            <div class="tab-item" data-target="favorites" onclick="switchTab('favorites')">
+                <i class="fa fa-heart"></i> 收藏
+                <i class="fa fa-plus" style="margin-left:5px;font-size:12px;" onclick="event.stopPropagation(); addAllFavorites()" title="一键添加"></i>
+            </div>
+        </div>
+
+        <!-- 搜索结果 -->
+        <div id="searchList" class="song-list"></div>
+
+        <!-- 播放列表 -->
+        <div id="playlistList" class="song-list" style="display:none;"></div>
+
+        <!-- 收藏列表 -->
+        <div id="favoritesList" class="song-list" style="display:none;"></div>
+    </div>
+
+    <!-- 底部播放 -->
+    <div class="player-bar">
+        <div class="progress-bar" onclick="seek(event)" id="progressBar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="player-main">
+            <div class="player-info">
+                <div class="song-title" id="nowTitle">未在播放</div>
+                <div class="song-artist" id="nowArtist">--</div>
+            </div>
+            <div class="player-controls">
+                <i class="fa fa-repeat" onclick="togglePlayMode()" id="modeBtn" style="font-size:20px;" title="播放模式"></i>
+                <i class="fa fa-step-backward" onclick="prevSong()"></i>
+                <i class="fa fa-play-circle play-btn" id="playBtn" onclick="togglePlay()"></i>
+                <i class="fa fa-step-forward" onclick="nextSong()"></i>
+                <i class="fa fa-list" onclick="switchTab('playlist')" style="font-size:20px;" title="播放列表"></i>
+            </div>
+        </div>
+    </div>
+
+    <audio id="audioPlayer"></audio>
+
+    <script src="https://lib.baomitu.com/jquery/3.6.0/jquery.min.js"></script>
+    <script>
+        const API = window.location.protocol + '//' + window.location.hostname + (window.location.port ? ':' + window.location.port : '');
+        let playlist = [], favorites = [], currentIndex = -1, isPlaying = false;
+        let playMode = 'list', lastSearch = [];
+        let currentTab = 'search';
+        const audio = document.getElementById('audioPlayer');
+
+        $(document).ready(function() {
+            loadFavorites();
+            audio.volume = 0.7;
+            
+            audio.ontimeupdate = function() {
+                const pct = (audio.currentTime / audio.duration) * 100 || 0;
+                document.getElementById('progressFill').style.width = pct + '%';
+                document.getElementById('nowTitle').textContent = 
+                    (audio.currentTime / 60).toFixed(1) + ' / ' + (audio.duration / 60).toFixed(1);
+            };
+            
+            audio.onended = function() {
+                if (playMode !== 'single') nextSong();
+            };
+
+            $('#searchInput').keypress(function(e) { if (e.which == 13) searchSongs(); });
+        });
+
+        async function searchSongs() {
+            const kw = $('#searchInput').val().trim();
+            if (!kw) return;
+            showLoading('searchList');
+            
+            try {
+                const r = await fetch(API + '/api/search', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({keyword: kw, save_to_db: false})
+                });
+                const d = await r.json();
+                lastSearch = d.result || [];
+                renderList('searchList', lastSearch, 'search');
+            } catch (e) {
+                $('#searchList').html('<div class="empty-state">搜索失败</div>');
+            }
+        }
+
+        function renderList(el, songs, type) {
+            if (!songs.length) {
+                $('#' + el).html('<div class="empty-state">暂无内容</div>');
+                return;
+            }
+            let html = '';
+            songs.forEach((s, i) => {
+                const playing = (type === 'playlist' && i === currentIndex);
+                html += `
+                    <div class="song-item ${playing ? 'playing' : ''}" onclick="${type}Song(${i})">
+                        <div class="song-info">
+                            <div class="song-title">${s.title}</div>
+                            <div class="song-artist">${s.artist}</div>
+                        </div>
+                        <div class="song-actions">
+                            <i class="fa fa-plus" onclick="event.stopPropagation(); addToPlaylist(${i}, '${type}')"></i>
+                            <i class="fa fa-heart${isFavorite(s.id) ? '' : '-o'}" onclick="event.stopPropagation(); toggleFav(${i}, '${type}')"></i>
+                        </div>
+                    </div>
+                `;
+            });
+            $('#' + el).html(html);
+        }
+
+        async function addToPlaylist(idx, from) {
+            const song = from === 'playlist' ? playlist[idx] : lastSearch[idx] || favorites[idx];
+            if (!song) return;
+            
+            try {
+                const r = await fetch(API + '/api/stream?id=' + song.id);
+                const d = await r.json();
+                if (d.code === 1 && d.url) {
+                    playlist.push({...song, mp3Url: d.url});
+                    renderPlaylist();
+                    renderFavList();
+                }
+            } catch (e) { alert('获取失败'); }
+        }
+
+        function renderPlaylist() {
+            $('#plistCount').text(playlist.length);
+            renderList('playlistList', playlist, 'playlist');
+        }
+
+        async function loadFavorites() {
+            try {
+                const r = await fetch(API + '/api/favorites');
+                const d = await r.json();
+                favorites = d.result || [];
+                renderFavList();
+            } catch (e) {}
+        }
+
+        function renderFavList() {
+            renderList('favoritesList', favorites, 'playlist');
+        }
+
+        async function addAllFavorites() {
+            if (!favorites.length) { alert('收藏为空'); return; }
+            let added = 0;
+            for (const song of favorites) {
+                try {
+                    const r = await fetch(API + '/api/stream?id=' + song.id);
+                    const d = await r.json();
+                    if (d.code === 1 && d.url) {
+                        playlist.push({id: song.id, title: song.title, artist: song.artist, mp3Url: d.url});
+                        added++;
+                    }
+                } catch (e) {}
+            }
+            renderPlaylist();
+            alert('已添加 ' + added + ' 首到播放列表');
+        }
+
+        async function toggleFav(idx, from) {
+            const song = from === 'playlist' ? playlist[idx] : (lastSearch[idx] || favorites[idx]);
+            if (!song) return;
+            
+            const songId = song.id;
+            const existing = favorites.findIndex(f => f.id === songId);
+            if (existing >= 0) {
+                await fetch(API + '/api/favorites?id=' + songId, {method: 'DELETE'});
+                favorites.splice(existing, 1);
+            } else {
+                await fetch(API + '/api/favorites', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({song_id: songId, title: song.title, artist: song.artist})
+                });
+                favorites.push({id: songId, title: song.title, artist: song.artist});
+            }
+            renderList(currentTab === 'search' ? lastSearch : favorites, currentTab);
+            renderFavList();
+        }
+
+        function isFavorite(id) {
+            return favorites.some(f => f.id === id);
+        }
+
+        async function searchSong(idx) {
+            currentIndex = idx;
+            const s = playlist[idx];
+            if (!s) return;
+            
+            $('#nowTitle').text(s.title);
+            $('#nowArtist').text(s.artist);
+            audio.src = s.mp3Url;
+            audio.play();
+            isPlaying = true;
+            updatePlayBtn();
+            renderPlaylist();
+        }
+
+        function playlistSong(idx) { searchSong(idx); }
+
+        function togglePlay() {
+            if (!playlist.length) return;
+            if (currentIndex === -1) { currentIndex = 0; searchSong(0); return; }
+            isPlaying ? audio.pause() : audio.play();
+            isPlaying = !isPlaying;
+            updatePlayBtn();
+        }
+
+        function updatePlayBtn() {
+            $('#playBtn').removeClass('fa-play-circle fa-pause-circle');
+            $('#playBtn').addClass(isPlaying ? 'fa-pause-circle' : 'fa-play-circle');
+        }
+
+        function prevSong() {
+            if (!playlist.length) return;
+            currentIndex = (currentIndex - 1 + playlist.length) % playlist.length;
+            searchSong(currentIndex);
+        }
+
+        function nextSong() {
+            if (!playlist.length) return;
+            currentIndex = playMode === 'random' ? Math.floor(Math.random() * playlist.length) : (currentIndex + 1) % playlist.length;
+            searchSong(currentIndex);
+        }
+
+        function togglePlayMode() {
+            const modes = ['list', 'single', 'random'];
+            const icons = ['fa-repeat', 'fa-refresh', 'fa-random'];
+            const idx = modes.indexOf(playMode);
+            playMode = modes[(idx + 1) % 3];
+            audio.loop = (playMode === 'single');
+            $('#modeBtn').removeClass('fa-repeat fa-refresh fa-random').addClass(icons[(idx + 1) % 3]);
+        }
+
+        function seek(e) {
+            if (!playlist.length || !audio.duration) return;
+            const bar = e.currentTarget;
+            let pct;
+            if (e.type === 'touchstart' || e.type === 'touchmove') {
+                pct = (e.touches[0].clientX - bar.getBoundingClientRect().left) / bar.offsetWidth;
+                e.preventDefault();
+            } else {
+                pct = e.offsetX / bar.offsetWidth;
+            }
+            pct = Math.max(0, Math.min(1, pct));
+            audio.currentTime = pct * audio.duration;
+            document.getElementById('progressFill').style.width = (pct * 100) + '%';
+        }
+
+        function showLoading(el) {
+            $('#' + el).html('<div class="empty-state"><i class="fa fa-spinner fa-spin fa-2x"></i><br>搜索中...</div>');
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            $('.tab-item').removeClass('active').filter('[data-target="' + tab + '"]').addClass('active');
+            $('#searchList, #playlistList, #favoritesList').hide();
+            $('#' + tab + 'List').show();
+            if (tab === 'playlist') renderPlaylist();
+            if (tab === 'favorites') renderFavList();
+        }
+    </script>
+</body>
+</html>
